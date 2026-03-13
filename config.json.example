@@ -1,3 +1,4 @@
 {
-  "allowed_users": []
+  "allowed_users": [],
+  "admin_users": []
 }

@@ -1,6 +1,10 @@
 import argparse
 import json
+import logging
+
 from garmin_fit_sdk import Decoder, Stream
+
+logger = logging.getLogger(__name__)
 
 def convert_fit_to_txt(fit_file_path, txt_file_path):
     """
@@ -10,7 +14,7 @@ def convert_fit_to_txt(fit_file_path, txt_file_path):
         fit_file_path (str): Путь к исходному .fit файлу.
         txt_file_path (str): Путь для сохранения результирующего .txt файла.
     """
-    print(f"Чтение файла: {fit_file_path}")
+    logger.info("Чтение файла: %s", fit_file_path)
 
     try:
         # Создаем поток данных из файла
@@ -19,7 +23,7 @@ def convert_fit_to_txt(fit_file_path, txt_file_path):
 
         # Проверяем, является ли файл корректным FIT файлом
         if not decoder.is_fit():
-            print("Ошибка: Файл не является валидным FIT файлом (отсутствует заголовок .FIT).")
+            logger.error("Файл не является валидным FIT файлом (отсутствует заголовок .FIT).")
             return
 
         # Декодируем файл с опциями для человеко-читаемого вывода
@@ -35,10 +39,10 @@ def convert_fit_to_txt(fit_file_path, txt_file_path):
 
         # Обрабатываем возможные ошибки декодирования
         if errors:
-            print(f"Внимание: При декодировании возникли ошибки: {errors}")
+            logger.warning("При декодировании возникли ошибки: %s", errors)
 
         if not messages:
-            print("В файле не найдено сообщений.")
+            logger.warning("В файле не найдено сообщений.")
             return
 
         # Сохраняем результат в текстовый файл
@@ -47,12 +51,12 @@ def convert_fit_to_txt(fit_file_path, txt_file_path):
             # Альтернативно можно написать кастомный парсер для более специфичного вывода
             txt_file.write(json.dumps(messages, indent=4, default=str, ensure_ascii=False))
 
-        print(f"Успешно сконвертировано. Результат сохранен в: {txt_file_path}")
+        logger.info("Успешно сконвертировано. Результат сохранен в: %s", txt_file_path)
 
     except FileNotFoundError:
-        print(f"Ошибка: Файл '{fit_file_path}' не найден.")
-    except Exception as e:
-        print(f"Произошла непредвиденная ошибка: {e}")
+        logger.error("Файл '%s' не найден.", fit_file_path)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Произошла непредвиденная ошибка при конвертации '%s': %s", fit_file_path, e)
 
 def main():
     # Настройка парсера аргументов командной строки

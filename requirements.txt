@@ -1,3 +1,5 @@
 python-telegram-bot>=21.0
 garmin-fit-sdk>=1.0
 python-dotenv>=1.0
+pydantic>=2.0
+watchdog>=6.0

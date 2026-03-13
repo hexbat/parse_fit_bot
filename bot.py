@@ -10,6 +10,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from config import load_config
 from handlers.parse_handler import register_parse_handlers
+from handlers.zones_handler import register_zones_handlers
+from handlers.auth_handler import register_auth_handlers
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -25,7 +27,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user = update.effective_user
     if user:
         logger.info("/start от пользователя id=%s", user.id)
-    await update.message.reply_text("Привет! Используйте /parse для конвертации FIT в TXT.")
+    text = (
+        "Привет! Я бот для конвертации Garmin FIT и анализа тренировок.\n\n"
+        "Доступные команды:\n"
+        "/parse — конвертировать FIT в TXT (+ общий JSON *_common.json)\n"
+        "/run — анализ беговой тренировки (splits, зоны, JSON *_run.json)\n"
+        "/zones — настроить индивидуальные пульсовые зоны для анализа бега\n"
+        "/authuser <user_id> — добавить пользователя с указанным id в белый список (только для админов)\n"
+        # В будущем здесь появятся /interval и /strenght
+    )
+    await update.message.reply_text(text)
 
 
 def main() -> None:
@@ -46,8 +57,10 @@ def main() -> None:
     if not args.no_auth:
         config = load_config()
         allowed_users = config.get("allowed_users", [])
+        admin_users = config.get("admin_users", [])
     else:
         allowed_users = []
+        admin_users = []
 
     application = (
         Application.builder()
@@ -59,6 +72,13 @@ def main() -> None:
 
     application.add_handler(CommandHandler("start", start_command))
     register_parse_handlers(application, no_auth=args.no_auth, allowed_users=allowed_users)
+    register_zones_handlers(application)
+    register_auth_handlers(application)
+
+    # Данные авторизации для хэндлеров
+    application.bot_data["no_auth"] = args.no_auth
+    application.bot_data["allowed_users"] = allowed_users
+    application.bot_data["admin_users"] = admin_users
 
     logger.info("Бот запущен (polling). --no-auth: %s", args.no_auth)
     application.run_polling(allowed_updates=Update.ALL_TYPES)

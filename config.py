@@ -21,3 +21,9 @@ def load_config() -> dict:
 
     with open(CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+def save_config(config: dict) -> None:
+    """Сохраняет конфигурацию в config.json."""
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
