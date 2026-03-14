@@ -1,4 +1,5 @@
 """Handlers для команд /parse и /run — работа с FIT-файлами."""
+import json
 import logging
 import tempfile
 import time
@@ -98,12 +99,12 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 messages = decode_fit_to_messages(str(fit_path))
                 if mode == "parse":
                     common_metrics = extract_common_metrics(messages)
-                    common_json = common_metrics.model_dump_json(indent=2, ensure_ascii=False)
+                    common_json = json.dumps(common_metrics.model_dump(mode="json"), indent=2, ensure_ascii=False)
                     common_json_path.write_text(common_json, encoding="utf-8")
                 elif mode == "run":
                     user_id = update.effective_user.id if update.effective_user else None
                     run_metrics = build_run_metrics(messages, user_id=user_id)
-                    run_json = run_metrics.model_dump_json(indent=2, ensure_ascii=False)
+                    run_json = json.dumps(run_metrics.model_dump(mode="json"), indent=2, ensure_ascii=False)
                     run_json_path.write_text(run_json, encoding="utf-8")
 
                 analysis_time = time.perf_counter() - analysis_start
