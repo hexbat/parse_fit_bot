@@ -34,7 +34,7 @@ jobs:
           REMOTE_DIR: /opt/parse_fit_bot
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$VPS_USER@$VPS_HOST" \
-            "cd $REMOTE_DIR && sudo -u parsefit /usr/bin/git fetch origin && sudo -u parsefit /usr/bin/git reset --hard origin/main"
+            "cd $REMOTE_DIR && /usr/bin/git fetch origin && /usr/bin/git reset --hard origin/main"
 
       - name: Install deps and restart service
         env:
@@ -43,7 +43,7 @@ jobs:
           REMOTE_DIR: /opt/parse_fit_bot
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$VPS_USER@$VPS_HOST" \
-            "cd $REMOTE_DIR && sudo -u parsefit ./venv/bin/pip install -q -r requirements.txt && sudo systemctl restart parse_fit_bot"
+            "cd $REMOTE_DIR && ./.venv/bin/pip install -q -r requirements.txt && sudo systemctl restart parse_fit_bot"
 
       - name: Check service status
         env:
