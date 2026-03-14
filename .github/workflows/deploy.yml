@@ -12,6 +12,8 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       # Клонирует этот репозиторий с GitHub на виртуальную машину runner (ветка, вызвавшая workflow)
       - name: Checkout repository from GitHub
@@ -19,7 +21,7 @@ jobs:
 
       - name: Setup SSH
         run: |
-          install -m 600 -d ~/.ssh
+          install -m 700 -d ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
@@ -50,7 +52,7 @@ jobs:
           REMOTE_DIR: /opt/parse_fit_bot
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$VPS_USER@$VPS_HOST" \
-            "cd $REMOTE_DIR && sudo -u parsefit ./venv/bin/pip install -q -r requirements.txt && sudo systemctl restart parse_fit_bot"
+            "cd $REMOTE_DIR && sudo -u parsefit ./.venv/bin/pip install -q -r requirements.txt && sudo systemctl restart parse_fit_bot"
 
       - name: Check service status
         env:
