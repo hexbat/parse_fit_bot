@@ -1,0 +1,61 @@
+# Деплой parse_fit_bot на VPS при push в main.
+# Цепочка: GitHub (репо) → checkout на runner → rsync на VPS → pip + systemctl.
+# Секреты: DEPLOY_SSH_KEY, VPS_HOST, VPS_USER (см. deploy/DEPLOY.md)
+
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Клонирует этот репозиторий с GitHub на виртуальную машину runner (ветка, вызвавшая workflow)
+      - name: Checkout repository from GitHub
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          install -m 600 -d ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy via rsync
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          REMOTE_DIR: /opt/parse_fit_bot
+        run: |
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude '.venv' \
+            --exclude 'venv' \
+            --exclude '__pycache__' \
+            --exclude '*.pyc' \
+            --exclude '.env' \
+            --exclude 'config.json' \
+            --exclude 'zones.json' \
+            --exclude '*.log' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new" \
+            ./ "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+
+      - name: Install deps and restart service
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          REMOTE_DIR: /opt/parse_fit_bot
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$VPS_USER@$VPS_HOST" \
+            "cd $REMOTE_DIR && sudo -u parsefit ./venv/bin/pip install -q -r requirements.txt && sudo systemctl restart parse_fit_bot"
+
+      - name: Check service status
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "$VPS_USER@$VPS_HOST" \
+            "sudo systemctl status parse_fit_bot --no-pager"

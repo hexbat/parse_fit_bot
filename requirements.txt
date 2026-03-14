@@ -2,4 +2,5 @@ python-telegram-bot>=21.0
 garmin-fit-sdk>=1.0
 python-dotenv>=1.0
 pydantic>=2.0
-watchdog>=6.0
+# >=4.0: совместимость с Python 3.8 на сервере (watchdog 6.x требует 3.9+)
+watchdog>=4.0
