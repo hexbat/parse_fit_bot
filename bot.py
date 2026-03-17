@@ -32,6 +32,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Доступные команды:\n"
         "/parse — конвертировать FIT в TXT (+ общий JSON *_common.json)\n"
         "/run — анализ беговой тренировки (splits, зоны, JSON *_run.json)\n"
+        "/interval — анализ интервальной беговой тренировки (интервалы по HR, JSON *_interval.json)\n"
         "/zones — настроить индивидуальные пульсовые зоны для анализа бега\n"
         "/authuser <user_id> — добавить пользователя с указанным id в белый список (только для админов)\n"
         # В будущем здесь появятся /interval и /strenght

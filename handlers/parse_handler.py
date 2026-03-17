@@ -11,6 +11,7 @@ from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
 from parse_fit import convert_fit_to_txt
 from fit_common import decode_fit_to_messages, extract_common_metrics
 from analysis_run import build_run_metrics
+from analysis_interval import build_interval_json
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,17 @@ async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("Отправьте беговую тренировку в формате .fit")
 
 
+async def interval_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /interval (анализ интервальной тренировки)."""
+    if not _is_allowed(update, context):
+        await update.message.reply_text("Access denied.")
+        return
+    logger.info("Пользователь %s вызвал /interval", update.effective_user.id if update.effective_user else "unknown")
+    context.user_data["waiting_fit"] = True
+    context.user_data["fit_mode"] = "interval"
+    await update.message.reply_text("Отправьте интервальную беговую тренировку в формате .fit")
+
+
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик входящего документа."""
     if not context.user_data.pop("waiting_fit", False):
@@ -80,6 +92,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         txt_path = Path(tmpdir) / "output.txt"
         common_json_path = Path(tmpdir) / "common.json"
         run_json_path = Path(tmpdir) / "run.json"
+        interval_json_path = Path(tmpdir) / "interval.json"
 
         try:
             file = await context.bot.get_file(document.file_id)
@@ -106,6 +119,10 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     run_metrics = build_run_metrics(messages, user_id=user_id)
                     run_json = json.dumps(run_metrics.model_dump(mode="json"), indent=2, ensure_ascii=False)
                     run_json_path.write_text(run_json, encoding="utf-8")
+                elif mode == "interval":
+                    interval_data = build_interval_json(messages)
+                    interval_json = json.dumps(interval_data, indent=2, ensure_ascii=False)
+                    interval_json_path.write_text(interval_json, encoding="utf-8")
 
                 analysis_time = time.perf_counter() - analysis_start
                 await update.message.reply_text(
@@ -121,6 +138,7 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 logger.exception("Ошибка анализа метрик для файла %s: %s", file_name, analysis_err)
                 common_json_path = None
                 run_json_path = None
+                interval_json_path = None
 
             if txt_path.exists() and txt_path.stat().st_size > 0:
                 output_name = Path(file_name).stem + ".txt"
@@ -139,6 +157,11 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                         json_name = Path(file_name).stem + "_run.json"
                         with open(run_json_path, "rb") as jf:
                             await update.message.reply_document(document=jf, filename=json_name)
+                elif mode == "interval":
+                    if interval_json_path is not None and interval_json_path.exists():
+                        json_name = Path(file_name).stem + "_interval.json"
+                        with open(interval_json_path, "rb") as jf:
+                            await update.message.reply_document(document=jf, filename=json_name)
 
                 logger.info(
                     "Файлы для %s успешно отправлены пользователю %s (mode=%s)",
@@ -156,9 +179,10 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 def register_parse_handlers(application, no_auth: bool, allowed_users: list) -> None:
-    """Регистрирует handlers для /parse, /run и обработки документов."""
+    """Регистрирует handlers для /parse, /run, /interval и обработки документов."""
     application.bot_data.setdefault("no_auth", no_auth)
     application.bot_data.setdefault("allowed_users", allowed_users)
     application.add_handler(CommandHandler("parse", parse_command))
     application.add_handler(CommandHandler("run", run_command))
+    application.add_handler(CommandHandler("interval", interval_command))
     application.add_handler(MessageHandler(filters.Document.ALL, document_handler))
