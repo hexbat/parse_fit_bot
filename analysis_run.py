@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
 from typing import List, Optional, Tuple
 
 from analysis_models import Cadence, RunMetrics, SplitKm, Zones, ZoneValues
 from fit_common import FitMessages, extract_common_metrics
+from fit_records import get_record_cadence, get_record_hr, get_record_timestamp
 from zones_store import get_user_zones
 
 # FIT: часто 65.535 м/с как «пустая» скорость uint16; выше ~25 м/с для бега не используем.
@@ -21,18 +21,6 @@ _MIN_GPS_ACCEPTED_DT_FRAC = 0.25
 _GPS_VS_SESSION_MAX_REL_ERR = 0.12
 
 
-def _get_record_timestamp(rec: dict) -> Optional[datetime]:
-    ts = rec.get("timestamp")
-    if isinstance(ts, datetime):
-        return ts
-    if isinstance(ts, str):
-        try:
-            return datetime.fromisoformat(ts)
-        except ValueError:
-            return None
-    return None
-
-
 def _get_record_speed(rec: dict) -> float:
     """Возвращает скорость в м/с для записи."""
     speed = rec.get("enhanced_speed")
@@ -42,22 +30,6 @@ def _get_record_speed(rec: dict) -> float:
         return float(speed or 0.0)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _get_record_hr(rec: dict) -> Optional[int]:
-    hr = rec.get("heart_rate")
-    try:
-        return int(hr) if hr is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _get_record_cadence(rec: dict) -> Optional[int]:
-    cad = rec.get("cadence")
-    try:
-        return int(cad) if cad is not None else None
-    except (TypeError, ValueError):
-        return None
 
 
 def _get_latlon_deg(rec: dict) -> Optional[Tuple[float, float]]:
@@ -110,8 +82,8 @@ def _gps_raw_segment_list(records: List[dict]) -> Tuple[List[float], float, floa
     total_dt = 0.0
     n = len(records)
     for i in range(n - 1):
-        ts0 = _get_record_timestamp(records[i])
-        ts1 = _get_record_timestamp(records[i + 1])
+        ts0 = get_record_timestamp(records[i])
+        ts1 = get_record_timestamp(records[i + 1])
         if ts0 is None or ts1 is None:
             segs.append(0.0)
             continue
@@ -168,8 +140,8 @@ def _prepare_segment_distances_m(
     if use_treadmill_avg:
         assert avg_mps_treadmill is not None
         for i in range(length):
-            ts0 = _get_record_timestamp(records[i])
-            ts1 = _get_record_timestamp(records[i + 1])
+            ts0 = get_record_timestamp(records[i])
+            ts1 = get_record_timestamp(records[i + 1])
             if ts0 is None or ts1 is None:
                 continue
             dt = (ts1 - ts0).total_seconds()
@@ -198,8 +170,8 @@ def _prepare_segment_distances_m(
         if has_session and use_avg_fallback:
             avg_ref = distance_m / total_timer_time  # type: ignore[operator]
             for i in range(length):
-                ts0 = _get_record_timestamp(records[i])
-                ts1 = _get_record_timestamp(records[i + 1])
+                ts0 = get_record_timestamp(records[i])
+                ts1 = get_record_timestamp(records[i + 1])
                 if ts0 is None or ts1 is None:
                     continue
                 dt = (ts1 - ts0).total_seconds()
@@ -217,8 +189,8 @@ def _prepare_segment_distances_m(
         return d_segs, note
 
     for i in range(length):
-        ts0 = _get_record_timestamp(records[i])
-        ts1 = _get_record_timestamp(records[i + 1])
+        ts0 = get_record_timestamp(records[i])
+        ts1 = get_record_timestamp(records[i + 1])
         if ts0 is None or ts1 is None:
             continue
         dt = (ts1 - ts0).total_seconds()
@@ -281,8 +253,8 @@ def build_run_metrics(messages: FitMessages, user_id: Optional[int] = None) -> R
         except (TypeError, ValueError):
             total_timer_time = None
 
-    records = [r for r in messages.records if _get_record_timestamp(r) is not None]
-    records.sort(key=_get_record_timestamp)
+    records = [r for r in messages.records if get_record_timestamp(r) is not None]
+    records.sort(key=get_record_timestamp)
 
     splits: List[SplitKm] = []
     zones_model: Optional[Zones] = None
@@ -310,7 +282,7 @@ def build_run_metrics(messages: FitMessages, user_id: Optional[int] = None) -> R
 
         current_km = 1
         acc_distance_m = 0.0
-        split_start_time = _get_record_timestamp(records[0])
+        split_start_time = get_record_timestamp(records[0])
         split_hr_sum = 0.0
         split_hr_count = 0
         split_hr_max = None
@@ -319,8 +291,8 @@ def build_run_metrics(messages: FitMessages, user_id: Optional[int] = None) -> R
 
         for i in range(len(records) - 1):
             rec = records[i + 1]
-            ts = _get_record_timestamp(rec)
-            prev_t = _get_record_timestamp(records[i])
+            ts = get_record_timestamp(rec)
+            prev_t = get_record_timestamp(records[i])
             if ts is None or prev_t is None:
                 continue
 
@@ -331,7 +303,7 @@ def build_run_metrics(messages: FitMessages, user_id: Optional[int] = None) -> R
             d_m = d_segs[i] if i < len(d_segs) else 0.0
             acc_distance_m += d_m
 
-            hr = _get_record_hr(rec)
+            hr = get_record_hr(rec)
 
             if hr is not None:
                 idx = _zone_index(hr, zone_bounds)
@@ -343,7 +315,7 @@ def build_run_metrics(messages: FitMessages, user_id: Optional[int] = None) -> R
                 if split_hr_max is None or hr > split_hr_max:
                     split_hr_max = hr
 
-            cad = _get_record_cadence(rec)
+            cad = get_record_cadence(rec)
             if cad is not None:
                 cad_sum += cad
                 cad_count += 1

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import List, Literal, Optional, Tuple, TypedDict
 
 from fit_common import FitMessages, extract_common_metrics
+from fit_records import get_record_hr, get_record_timestamp
 
 
 class IntervalEntry(TypedDict):
@@ -23,41 +23,19 @@ class _HrPoint:
     hr: int
 
 
-def _get_record_timestamp(rec: dict) -> Optional[datetime]:
-    ts = rec.get("timestamp")
-    if isinstance(ts, datetime):
-        return ts
-    if isinstance(ts, str):
-        try:
-            return datetime.fromisoformat(ts)
-        except ValueError:
-            return None
-    return None
-
-
-def _get_record_hr(rec: dict) -> Optional[int]:
-    hr = rec.get("heart_rate")
-    if hr is None:
-        return None
-    try:
-        return int(hr)
-    except (TypeError, ValueError):
-        return None
-
-
 def _build_hr_series(messages: FitMessages) -> List[_HrPoint]:
-    records = [r for r in messages.records if _get_record_timestamp(r) is not None]
-    records.sort(key=_get_record_timestamp)
+    records = [r for r in messages.records if get_record_timestamp(r) is not None]
+    records.sort(key=get_record_timestamp)
     if not records:
         return []
 
-    base_ts = _get_record_timestamp(records[0])
+    base_ts = get_record_timestamp(records[0])
     assert base_ts is not None
 
     series: List[_HrPoint] = []
     for rec in records:
-        ts = _get_record_timestamp(rec)
-        hr = _get_record_hr(rec)
+        ts = get_record_timestamp(rec)
+        hr = get_record_hr(rec)
         if ts is None or hr is None:
             continue
         t_sec = int((ts - base_ts).total_seconds())

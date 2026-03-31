@@ -1,9 +1,12 @@
-"""Handlers для команд /parse и /run — работа с FIT-файлами."""
+"""Handlers для /parse, /run и /interval — работа с FIT-файлами."""
+from __future__ import annotations
+
 import json
 import logging
 import tempfile
 import time
 from pathlib import Path
+from typing import Literal, Optional
 
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
@@ -14,6 +17,21 @@ from analysis_run import build_run_metrics
 from analysis_interval import build_interval_json
 
 logger = logging.getLogger(__name__)
+
+FitMode = Literal["parse", "run", "interval"]
+
+
+_MODE_COMMAND_MESSAGES: dict[FitMode, str] = {
+    "parse": "Отправьте файл в формате .fit",
+    "run": "Отправьте беговую тренировку в формате .fit",
+    "interval": "Отправьте интервальную беговую тренировку в формате .fit",
+}
+
+_MODE_OUTPUT_SUFFIX: dict[FitMode, str] = {
+    "parse": "_common.json",
+    "run": "_run.json",
+    "interval": "_interval.json",
+}
 
 
 def _is_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -26,44 +44,85 @@ def _is_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     return user_id is not None and user_id in allowed_users
 
 
-async def parse_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик команды /parse."""
+def _prepare_fit_mode(context: ContextTypes.DEFAULT_TYPE, mode: FitMode) -> None:
+    context.user_data["waiting_fit"] = True
+    context.user_data["fit_mode"] = mode
+
+
+async def _start_mode(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: FitMode) -> None:
     if not _is_allowed(update, context):
         await update.message.reply_text("Access denied.")
         return
-    logger.info("Пользователь %s вызвал /parse", update.effective_user.id if update.effective_user else "unknown")
-    context.user_data["waiting_fit"] = True
-    context.user_data["fit_mode"] = "parse"
-    await update.message.reply_text("Отправьте файл в формате .fit")
+    _prepare_fit_mode(context, mode)
+    logger.info(
+        "Пользователь %s вызвал /%s",
+        update.effective_user.id if update.effective_user else "unknown",
+        mode,
+    )
+    await update.message.reply_text(_MODE_COMMAND_MESSAGES[mode])
+
+
+async def parse_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /parse."""
+    await _start_mode(update, context, "parse")
 
 
 async def run_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /run (анализ беговой тренировки)."""
-    if not _is_allowed(update, context):
-        await update.message.reply_text("Access denied.")
-        return
-    logger.info("Пользователь %s вызвал /run", update.effective_user.id if update.effective_user else "unknown")
-    context.user_data["waiting_fit"] = True
-    context.user_data["fit_mode"] = "run"
-    await update.message.reply_text("Отправьте беговую тренировку в формате .fit")
+    await _start_mode(update, context, "run")
 
 
 async def interval_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /interval (анализ интервальной тренировки)."""
-    if not _is_allowed(update, context):
-        await update.message.reply_text("Access denied.")
-        return
-    logger.info("Пользователь %s вызвал /interval", update.effective_user.id if update.effective_user else "unknown")
-    context.user_data["waiting_fit"] = True
-    context.user_data["fit_mode"] = "interval"
-    await update.message.reply_text("Отправьте интервальную беговую тренировку в формате .fit")
+    await _start_mode(update, context, "interval")
+
+
+def _build_analysis_payload(messages, mode: FitMode, user_id: Optional[int]) -> str:
+    if mode == "parse":
+        common_metrics = extract_common_metrics(messages)
+        return json.dumps(
+            common_metrics.model_dump(mode="json"), indent=2, ensure_ascii=False
+        )
+    if mode == "run":
+        run_metrics = build_run_metrics(messages, user_id=user_id)
+        return json.dumps(run_metrics.model_dump(mode="json"), indent=2, ensure_ascii=False)
+
+    interval_data = build_interval_json(messages)
+    return json.dumps(interval_data, indent=2, ensure_ascii=False)
+
+
+def _analysis_output_name(file_name: str, mode: FitMode) -> str:
+    return Path(file_name).stem + _MODE_OUTPUT_SUFFIX[mode]
+
+
+async def _send_document(update: Update, path: Path, output_name: str) -> None:
+    with open(path, "rb") as f:
+        await update.message.reply_document(document=f, filename=output_name)
+
+
+async def _send_outputs(
+    update: Update,
+    *,
+    txt_path: Path,
+    source_file_name: str,
+    analysis_json_path: Optional[Path],
+    mode: FitMode,
+) -> None:
+    output_name = Path(source_file_name).stem + ".txt"
+    await _send_document(update, txt_path, output_name)
+
+    if analysis_json_path is not None and analysis_json_path.exists():
+        await _send_document(
+            update, analysis_json_path, _analysis_output_name(source_file_name, mode)
+        )
 
 
 async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик входящего документа."""
     if not context.user_data.pop("waiting_fit", False):
         return
-    mode = context.user_data.pop("fit_mode", "parse")
+    mode_raw = context.user_data.pop("fit_mode", "parse")
+    mode: FitMode = mode_raw if mode_raw in ("parse", "run", "interval") else "parse"
 
     if not _is_allowed(update, context):
         await update.message.reply_text("Access denied.")
@@ -90,9 +149,8 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     with tempfile.TemporaryDirectory() as tmpdir:
         fit_path = Path(tmpdir) / "input.fit"
         txt_path = Path(tmpdir) / "output.txt"
-        common_json_path = Path(tmpdir) / "common.json"
-        run_json_path = Path(tmpdir) / "run.json"
-        interval_json_path = Path(tmpdir) / "interval.json"
+        analysis_json_path = Path(tmpdir) / "analysis.json"
+        analysis_ready = False
 
         try:
             file = await context.bot.get_file(document.file_id)
@@ -110,19 +168,10 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 logger.info("Запуск анализа файла %s (mode=%s)", file_name, mode)
 
                 messages = decode_fit_to_messages(str(fit_path))
-                if mode == "parse":
-                    common_metrics = extract_common_metrics(messages)
-                    common_json = json.dumps(common_metrics.model_dump(mode="json"), indent=2, ensure_ascii=False)
-                    common_json_path.write_text(common_json, encoding="utf-8")
-                elif mode == "run":
-                    user_id = update.effective_user.id if update.effective_user else None
-                    run_metrics = build_run_metrics(messages, user_id=user_id)
-                    run_json = json.dumps(run_metrics.model_dump(mode="json"), indent=2, ensure_ascii=False)
-                    run_json_path.write_text(run_json, encoding="utf-8")
-                elif mode == "interval":
-                    interval_data = build_interval_json(messages)
-                    interval_json = json.dumps(interval_data, indent=2, ensure_ascii=False)
-                    interval_json_path.write_text(interval_json, encoding="utf-8")
+                user_id = update.effective_user.id if update.effective_user else None
+                payload = _build_analysis_payload(messages, mode, user_id=user_id)
+                analysis_json_path.write_text(payload, encoding="utf-8")
+                analysis_ready = True
 
                 analysis_time = time.perf_counter() - analysis_start
                 await update.message.reply_text(
@@ -136,32 +185,16 @@ async def document_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 )
             except Exception as analysis_err:  # noqa: BLE001
                 logger.exception("Ошибка анализа метрик для файла %s: %s", file_name, analysis_err)
-                common_json_path = None
-                run_json_path = None
-                interval_json_path = None
+                analysis_ready = False
 
             if txt_path.exists() and txt_path.stat().st_size > 0:
-                output_name = Path(file_name).stem + ".txt"
-                with open(txt_path, "rb") as f:
-                    await update.message.reply_document(document=f, filename=output_name)
-
-                if mode == "parse":
-                    # Если удалось сформировать common.json — отправляем его вторым файлом
-                    if common_json_path is not None and common_json_path.exists():
-                        json_name = Path(file_name).stem + "_common.json"
-                        with open(common_json_path, "rb") as jf:
-                            await update.message.reply_document(document=jf, filename=json_name)
-                elif mode == "run":
-                    # Для режима /run отправляем специализированный JSON анализа
-                    if run_json_path is not None and run_json_path.exists():
-                        json_name = Path(file_name).stem + "_run.json"
-                        with open(run_json_path, "rb") as jf:
-                            await update.message.reply_document(document=jf, filename=json_name)
-                elif mode == "interval":
-                    if interval_json_path is not None and interval_json_path.exists():
-                        json_name = Path(file_name).stem + "_interval.json"
-                        with open(interval_json_path, "rb") as jf:
-                            await update.message.reply_document(document=jf, filename=json_name)
+                await _send_outputs(
+                    update,
+                    txt_path=txt_path,
+                    source_file_name=file_name,
+                    analysis_json_path=analysis_json_path if analysis_ready else None,
+                    mode=mode,
+                )
 
                 logger.info(
                     "Файлы для %s успешно отправлены пользователю %s (mode=%s)",
