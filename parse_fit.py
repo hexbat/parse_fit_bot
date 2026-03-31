@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import argparse
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 
 from fit_common import decode_fit_to_messages
 
@@ -24,7 +27,7 @@ def convert_fit_to_txt(fit_file_path: str, txt_file_path: str) -> None:
     logger.info("Успешно сконвертировано. Результат сохранен в: %s", txt_file_path)
 
 
-def _resolve_output_path(input_fit: str, output: str | None) -> str:
+def _resolve_output_path(input_fit: str, output: Optional[str]) -> str:
     if output:
         return output
     if input_fit.lower().endswith(".fit"):
